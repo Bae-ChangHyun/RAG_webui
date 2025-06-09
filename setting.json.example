@@ -1,0 +1,29 @@
+{
+  "chunking": {
+    "method": "semantic_chunker",
+    "chunk_size": 512,
+    "overlap": 50,
+    "unit": "token"
+  },
+  "llm": {
+    "provider": "openai",
+    "model_name": "gpt-4.1-nano-2025-04-14",
+    "api_key": "",
+    "api_url": null,
+    "vllm_base_url": null,
+    "ollama_base_url": "http://localhost:11434/v1",
+    "temperature": 0.1
+  },
+  "parser": {
+    "parser_type": "pdfplumber"
+  },
+  "embedding": {
+    "model_name": "jinaai/jina-embeddings-v3"
+  },
+  "retrieval": {
+    "search_limit": 10,
+    "score_threshold": 0.4,
+    "use_hybrid": true,
+    "default_strategy": "hybrid"
+  }
+}

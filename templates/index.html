@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Document System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8" x-data="ragApp()">
+        <!-- 헤더 -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">RAG Document System</h1>
+                    <p class="text-gray-600">문서를 업로드하고 질문하세요!</p>
+                </div>
+                <button @click="showSettings = true"
+                    class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                    ⚙️ 설정
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 문서 업로드 패널 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-800">📄 문서 업로드</h2>
+
+                    <!-- 드래그 앤 드롭 영역 -->
+                    <div @drop="handleDrop" @dragover.prevent @dragenter.prevent
+                        class="border-2 border-dashed border-gray-300 rounded-lg p-6 mb-4 text-center hover:border-blue-400 transition-colors"
+                        :class="{'border-blue-400 bg-blue-50': isDragging}" @dragenter="isDragging = true"
+                        @dragleave="isDragging = false" @drop="isDragging = false">
+                        <div class="mb-4">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none"
+                                viewBox="0 0 48 48">
+                                <path
+                                    d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </div>
+                        <p class="text-gray-600 mb-2">파일이나 폴더를 여기에 드래그하세요</p>
+                        <p class="text-sm text-gray-500">또는 아래 버튼을 클릭하세요</p>
+                    </div>
+
+                    <!-- 파일/폴더 선택 버튼들 -->
+                    <div class="grid grid-cols-2 gap-2 mb-4">
+                        <button @click="$refs.fileInput.click()"
+                            class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-200 transition duration-200">
+                            📄 파일 선택
+                        </button>
+                        <button @click="$refs.folderInput.click()"
+                            class="bg-green-100 text-green-700 px-4 py-2 rounded-lg hover:bg-green-200 transition duration-200">
+                            📁 폴더 선택
+                        </button>
+                    </div>
+
+                    <!-- 숨겨진 input 요소들 -->
+                    <input x-ref="fileInput" type="file" @change="handleFileSelect" accept=".pdf,.docx,.txt,.md"
+                        multiple class="hidden">
+                    <input x-ref="folderInput" type="file" @change="handleFolderSelect" webkitdirectory class="hidden">
+
+                    <!-- 선택된 파일 목록 -->
+                    <div x-show="selectedFiles.length > 0" class="mb-4">
+                        <h3 class="text-sm font-semibold text-gray-700 mb-2">선택된 파일:</h3>
+                        <div class="max-h-32 overflow-y-auto bg-gray-50 rounded p-2">
+                            <template x-for="file in selectedFiles" :key="file.name + file.size">
+                                <div class="flex justify-between items-center text-xs py-1">
+                                    <div class="flex-1">
+                                        <span x-text="file.webkitRelativePath || file.name" class="truncate"></span>
+                                        <div x-show="file.webkitRelativePath" class="text-gray-400 text-xs">
+                                            폴더: <span
+                                                x-text="file.webkitRelativePath.split('/').slice(0, -1).join('/')"></span>
+                                        </div>
+                                    </div>
+                                    <span x-text="(file.size / 1024).toFixed(1) + ' KB'"
+                                        class="text-gray-500 ml-2"></span>
+                                    <button @click="removeFile(file)"
+                                        class="text-red-500 hover:text-red-700 ml-2">✕</button>
+                                </div>
+                            </template>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">총 <span x-text="selectedFiles.length"></span>개 파일</p>
+                    </div>
+
+                    <!-- 텍스트 입력 -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">또는 직접 텍스트 입력</label>
+                        <input type="text" x-model="documentTitle" placeholder="문서 제목"
+                            class="w-full p-2 border border-gray-300 rounded-lg mb-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <textarea x-model="documentContent" placeholder="문서 내용을 입력하세요..." rows="6"
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+                    </div>
+
+                    <!-- 업로드 버튼 -->
+                    <button @click="uploadDocument" :disabled="uploading"
+                        class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition duration-200">
+                        <span x-show="!uploading">📤 업로드</span>
+                        <span x-show="uploading">⏳ 업로드 중...</span>
+                    </button>
+
+                    <!-- 업로드 진행률 -->
+                    <div x-show="uploading && uploadProgress > 0" class="mt-4">
+                        <div class="bg-gray-200 rounded-full h-2">
+                            <div class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                :style="'width: ' + uploadProgress + '%'"></div>
+                        </div>
+                        <p class="text-xs text-gray-600 mt-1">
+                            업로드 중... <span x-text="uploadProgress"></span>%
+                            (<span x-text="currentFileIndex"></span>/<span x-text="totalFiles"></span>)
+                        </p>
+                    </div>
+
+                    <!-- 업로드 상태 -->
+                    <div x-show="uploadStatus" class="mt-4 p-3 rounded-lg"
+                        :class="uploadSuccess ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                        x-text="uploadStatus"></div>
+
+                    <!-- 문서 통계 -->
+                    <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                        <h3 class="font-semibold mb-2">📊 문서 통계</h3>
+                        <p class="text-sm text-gray-600">총 문서 수: <span x-text="documentCount"
+                                class="font-semibold"></span></p>
+                        <button @click="refreshStats" class="text-blue-600 text-sm hover:underline mt-1">새로고침</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 채팅 패널 -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow-md h-[600px] flex flex-col">
+                    <!-- 채팅 헤더 -->
+                    <div class="p-4 border-b border-gray-200">
+                        <h2 class="text-xl font-semibold text-gray-800">💬 질문하기</h2>
+                        <p class="text-sm text-gray-600">업로드된 문서를 바탕으로 질문에 답변해드립니다.</p>
+                    </div>
+
+                    <!-- 메시지 목록 -->
+                    <div class="flex-1 p-4 overflow-y-auto" id="messageContainer">
+                        <template x-for="message in messages" :key="message.id">
+                            <div class="mb-4">
+                                <!-- 사용자 메시지 -->
+                                <div x-show="message.type === 'user'" class="flex justify-end">
+                                    <div class="bg-blue-600 text-white p-3 rounded-lg max-w-[80%]">
+                                        <p x-text="message.content"></p>
+                                        <div class="text-xs text-blue-100 mt-1" x-text="message.timestamp"></div>
+                                    </div>
+                                </div>
+
+                                <!-- AI 응답 -->
+                                <div x-show="message.type === 'assistant'" class="flex justify-start">
+                                    <div class="bg-gray-100 text-gray-800 p-3 rounded-lg max-w-[80%]">
+                                        <!-- 쿼리 분석 정보 표시 -->
+                                        <div x-show="message.query_analysis"
+                                            class="mb-2 p-2 bg-blue-50 rounded text-xs">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="font-semibold">🔍 질문 분석:</span>
+                                                <span
+                                                    x-show="message.query_analysis && message.query_analysis.query_type === 'greeting'"
+                                                    class="bg-green-100 text-green-800 px-2 py-1 rounded">인사</span>
+                                                <span
+                                                    x-show="message.query_analysis && message.query_analysis.query_type === 'general_knowledge'"
+                                                    class="bg-blue-100 text-blue-800 px-2 py-1 rounded">일반 지식</span>
+                                                <span
+                                                    x-show="message.query_analysis && message.query_analysis.query_type === 'system_info'"
+                                                    class="bg-purple-100 text-purple-800 px-2 py-1 rounded">시스템
+                                                    정보</span>
+                                                <span
+                                                    x-show="message.query_analysis && message.query_analysis.query_type === 'document_search'"
+                                                    class="bg-orange-100 text-orange-800 px-2 py-1 rounded">문서 검색</span>
+                                            </div>
+                                            <div class="text-gray-600">
+                                                <span x-show="message.used_documents === false">📝 문서 없이 답변 생성</span>
+                                                <span x-show="message.used_documents === true">📚 문서 기반 답변 생성</span>
+                                                <span
+                                                    x-show="message.query_analysis && message.query_analysis.keywords && message.query_analysis.keywords.length > 0"
+                                                    class="ml-2">
+                                                    | 키워드: <span
+                                                        x-text="(message.query_analysis && message.query_analysis.keywords) ? message.query_analysis.keywords.join(', ') : ''"></span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <p x-text="message.content" class="whitespace-pre-wrap"></p>
+                                        <div x-show="message.sources && message.sources.length > 0" class="mt-3">
+                                            <p class="text-xs font-semibold text-gray-600 mb-1">📚 참조 문서:</p>
+                                            <template x-for="(source, index) in message.sources"
+                                                :key="source.unique_chunk_index || source.document_id + '_' + index">
+                                                <div class="bg-blue-50 p-2 rounded text-xs mb-1">
+                                                    <div class="flex justify-between items-start mb-1">
+                                                        <div class="flex-1">
+                                                            <p class="font-semibold"
+                                                                x-text="(source.metadata && source.metadata.title) || '알 수 없는 문서'">
+                                                            </p>
+                                                            <p class="text-xs text-gray-500"
+                                                                x-text="'청크 ID: ' + (source.unique_chunk_index || source.document_id + '#' + ((source.metadata && source.metadata.chunk_index) || index))">
+                                                            </p>
+                                                        </div>
+                                                        <button @click="viewChunkContent(source)"
+                                                            class="ml-2 text-blue-600 hover:text-blue-800 text-xs underline">
+                                                            청크 보기
+                                                        </button>
+                                                    </div>
+                                                    <p class="text-gray-600 mt-1"
+                                                        x-text="(source.content || '내용 없음').substring(0, 100) + (source.content && source.content.length > 100 ? '...' : '')">
+                                                    </p>
+                                                    <p class="text-blue-600 mt-1">유사도: <span
+                                                            x-text="source.score ? (source.score * 100).toFixed(1) : '0.0'"></span>%
+                                                    </p>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <div class="text-xs text-gray-500 mt-1" x-text="message.timestamp"></div>
+                                    </div>
+                                </div>
+
+                                <!-- 로딩 메시지 -->
+                                <div x-show="message.type === 'loading'" class="flex justify-start">
+                                    <div class="bg-gray-100 text-gray-800 p-3 rounded-lg">
+                                        <div class="flex items-center">
+                                            <div
+                                                class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2">
+                                            </div>
+                                            <span>답변을 생성하고 있습니다...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 입력 영역 -->
+                    <div class="p-4 border-t border-gray-200">
+                        <div class="flex gap-2">
+                            <input type="text" x-model="currentQuestion" @keyup.enter="askQuestion"
+                                placeholder="문서에 대해 질문해보세요..." :disabled="questioning"
+                                class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100">
+                            <button @click="askQuestion" :disabled="questioning || !currentQuestion.trim()"
+                                class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition duration-200">
+                                <span x-show="!questioning">전송</span>
+                                <span x-show="questioning">⏳</span>
+                            </button>
+                        </div>
+
+                        <!-- 검색 전략 옵션 -->
+                        <div class="mt-2 flex items-center">
+                            <span class="text-sm text-gray-600 mr-3">검색 전략:</span>
+                            <label class="flex items-center text-sm text-gray-600 mr-3">
+                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="vector"
+                                    class="mr-1">
+                                벡터 검색
+                            </label>
+                            <label class="flex items-center text-sm text-gray-600 mr-3">
+                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="bm25"
+                                    class="mr-1">
+                                BM25 검색
+                            </label>
+                            <label class="flex items-center text-sm text-gray-600">
+                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="hybrid"
+                                    class="mr-1">
+                                하이브리드 검색
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 설정 모달 -->
+        <div x-show="showSettings" x-transition
+            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            @click.self="showSettings = false">
+            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800">⚙️ 시스템 설정</h2>
+                        <button @click="showSettings = false" class="text-gray-500 hover:text-gray-700">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- 탭 네비게이션 -->
+                    <div class="border-b border-gray-200 mb-6">
+                        <nav class="-mb-px flex space-x-8">
+                            <button @click="activeTab = 'parsing'"
+                                :class="activeTab === 'parsing' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
+                                📄 파싱 설정
+                            </button>
+                            <button @click="activeTab = 'chunking'"
+                                :class="activeTab === 'chunking' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
+                                📝 청킹 설정
+                            </button>
+                            <button @click="activeTab = 'embedding'"
+                                :class="activeTab === 'embedding' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
+                                🔮 임베딩 설정
+                            </button>
+                            <button @click="activeTab = 'retrieval'"
+                                :class="activeTab === 'retrieval' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
+                                🔍 검색 설정
+                            </button>
+                            <button @click="activeTab = 'llm'"
+                                :class="activeTab === 'llm' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm">
+                                🤖 LLM 설정
+                            </button>
+                        </nav>
+                    </div>
+
+                    <!-- 설정 컨텐츠 -->
+                    <div class="max-h-[50vh] overflow-y-auto">
+                        <!-- 파싱 설정 탭 -->
+                        <div x-show="activeTab === 'parsing'" class="space-y-4">
+                            <h3 class="text-lg font-semibold text-gray-700">📄 문서 파서 설정</h3>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">파서 유형</label>
+                                <select x-model="settings.parser.parser_type"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                                    <option value="docling">Docling (고급 문서 구조 분석)</option>
+                                    <option value="pdfminer">PDFMiner (텍스트 중심)</option>
+                                    <option value="pdfplumber">PDFPlumber (표 및 레이아웃)</option>
+                                    <option value="pypdf">PyPDF (간단한 PDF 처리)</option>
+                                </select>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    문서 유형에 따라 적절한 파서를 선택하세요. Docling은 복잡한 문서 구조에 최적화되어 있습니다.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- 청킹 설정 탭 -->
+                        <div x-show="activeTab === 'chunking'" class="space-y-4">
+                            <h3 class="text-lg font-semibold text-gray-700">📝 텍스트 청킹 설정</h3>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">청킹 방법</label>
+                                <select x-model="settings.chunking.method"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                                    <option value="token_sentence">토큰-문장 기반 (균형잡힌 분할)</option>
+                                    <option value="sentence_window">문장 윈도우 (문맥 보존)</option>
+                                    <option value="recursive_character">재귀적 문자 분할 (유연한 분할)</option>
+                                    <option value="semantic_chunker">의미적 청킹 (임베딩 기반)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">청크 크기</label>
+                                <input type="number" x-model="settings.chunking.chunk_size" min="100" max="2048"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                                <p class="text-xs text-gray-500 mt-1">
+                                    청크당 토큰 수. 너무 작으면 문맥이 부족하고, 너무 크면 정확도가 떨어집니다. (권장: 256-512)
+                                </p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">겹침 크기</label>
+                                <input type="number" x-model="settings.chunking.overlap" min="0" max="200"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                                <p class="text-xs text-gray-500 mt-1">
+                                    인접 청크 간 겹치는 토큰 수. 문맥 연속성을 위해 설정합니다. (권장: 50-100)
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- 임베딩 설정 탭 -->
+                        <div x-show="activeTab === 'embedding'" class="space-y-4">
+                            <h3 class="text-lg font-semibold text-gray-700">🔮 임베딩 모델 설정</h3>
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                                <div class="flex items-start">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd"
+                                                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                                clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="text-sm font-medium text-yellow-800">⚠️ 중요 안내</h4>
+                                        <p class="text-sm text-yellow-700 mt-1">
+                                            임베딩 모델을 변경하면 기존의 모든 벡터스토어 데이터가 삭제됩니다.
+                                            변경 후 문서를 다시 업로드해야 합니다.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">임베딩 모델</label>
+                                <input type="text" x-model="settings.embedding.model_name"
+                                    class="w-full p-2 border border-gray-300 rounded-lg"
+                                    placeholder="예: jinaai/jina-embeddings-v3">
+                                <p class="text-xs text-gray-500 mt-1">
+                                    HuggingFace의 임베딩 모델명을 입력하세요. 한국어 문서에는 multilingual 모델을 권장합니다.
+                                </p>
+                                <div class="mt-2 text-xs text-gray-500">
+                                    <p><strong>추천 모델:</strong></p>
+                                    <ul class="list-disc pl-5 mt-1">
+                                        <li>jinaai/jina-embeddings-v3 (최신, 다국어)</li>
+                                        <li>BAAI/bge-m3 (다국어 지원)</li>
+                                        <li>dragonkue/BGE-m3-ko (한국어 최적화)</li>
+                                        <li>sentence-transformers/all-MiniLM-L6-v2 (경량)</li>
+                                        <li>intfloat/multilingual-e5-large (고성능)</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 검색 설정 탭 -->
+                        <div x-show="activeTab === 'retrieval'" class="space-y-4">
+                            <h3 class="text-lg font-semibold text-gray-700">🔍 검색 설정</h3>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">검색 결과 수</label>
+                                <input type="number" x-model="settings.retrieval.search_limit" min="1" max="20"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                                <p class="text-xs text-gray-500 mt-1">
+                                    검색 시 반환할 최대 청크 수. 많을수록 더 많은 컨텍스트를 제공하지만 응답이 느려집니다.
+                                </p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">유사도 임계값</label>
+                                <input type="range" x-model="settings.retrieval.score_threshold" min="0" max="1"
+                                    step="0.1" class="w-full">
+                                <div class="flex justify-between text-xs text-gray-500">
+                                    <span>낮음 (0.0)</span>
+                                    <span x-text="settings.retrieval.score_threshold"></span>
+                                    <span>높음 (1.0)</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    최소 유사도 점수. 높을수록 더 관련성 높은 결과만 반환합니다.
+                                </p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">기본 검색 전략</label>
+                                <div class="flex flex-wrap gap-4">
+                                    <label class="flex items-center text-sm text-gray-600">
+                                        <input type="radio" name="defaultSearchStrategy"
+                                            x-model="settings.retrieval.default_strategy" value="vector" class="mr-1">
+                                        벡터 검색
+                                    </label>
+                                    <label class="flex items-center text-sm text-gray-600">
+                                        <input type="radio" name="defaultSearchStrategy"
+                                            x-model="settings.retrieval.default_strategy" value="bm25" class="mr-1">
+                                        BM25 검색
+                                    </label>
+                                    <label class="flex items-center text-sm text-gray-600">
+                                        <input type="radio" name="defaultSearchStrategy"
+                                            x-model="settings.retrieval.default_strategy" value="hybrid" class="mr-1">
+                                        하이브리드 검색
+                                    </label>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    하이브리드는 벡터 검색과 키워드 검색을 결합하여 더 정확한 결과를 제공합니다.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- LLM 설정 탭 -->
+                        <div x-show="activeTab === 'llm'" class="space-y-4">
+                            <h3 class="text-lg font-semibold text-gray-700">🤖 LLM 설정</h3>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">제공자</label>
+                                <select x-model="settings.llm.provider"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                                    <option value="openai">OpenAI</option>
+                                    <option value="gemini">Google Gemini</option>
+                                    <option value="vllm">vLLM</option>
+                                    <option value="ollama">Ollama</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">모델 이름</label>
+                                <input type="text" x-model="settings.llm.model_name"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">API 키</label>
+                                <input type="password" x-model="settings.llm.api_key" placeholder="환경변수에서 자동 로드됨"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div x-show="settings.llm.provider === 'vllm'">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">vLLM Base URL</label>
+                                <input type="url" x-model="settings.llm.vllm_base_url"
+                                    placeholder="http://localhost:8000"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div x-show="settings.llm.provider === 'ollama'">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Ollama Base URL</label>
+                                <input type="url" x-model="settings.llm.ollama_base_url"
+                                    placeholder="http://localhost:11434"
+                                    class="w-full p-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Temperature</label>
+                                <input type="range" x-model="settings.llm.temperature" min="0" max="1" step="0.1"
+                                    class="w-full">
+                                <div class="flex justify-between text-xs text-gray-500">
+                                    <span>결정적 (0.0)</span>
+                                    <span x-text="settings.llm.temperature"></span>
+                                    <span>창의적 (1.0)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 버튼 -->
+                    <div class="flex gap-3 mt-6 pt-4 border-t border-gray-200">
+                        <button @click="loadSettings"
+                            class="flex-1 bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition duration-200">
+                            현재 설정 불러오기
+                        </button>
+                        <button @click="saveSettings"
+                            class="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-200">
+                            설정 저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 전체 내용 보기 모달 -->
+        <div x-show="showFullContent" x-transition
+            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            @click.self="showFullContent = false">
+            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800" x-text="fullContentDocument.title || '청크 내용'">
+                            </h2>
+                            <p class="text-sm text-gray-500" x-text="fullContentDocument.chunkId"></p>
+                        </div>
+                        <button @click="showFullContent = false" class="text-gray-500 hover:text-gray-700">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="max-h-[70vh] overflow-y-auto bg-gray-50 p-4 rounded-lg">
+                        <div x-show="loadingFullContent" class="text-center py-8">
+                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2">
+                            </div>
+                            <p class="text-gray-600">청크 내용을 불러오는 중...</p>
+                        </div>
+                        <div x-show="!loadingFullContent" class="bg-white p-4 rounded-lg border border-gray-200">
+                            <div class="text-sm text-gray-800 whitespace-pre-wrap" x-text="fullContentDocument.content">
+                            </div>
+                            <!-- 메타데이터 표시 -->
+                            <div x-show="fullContentDocument.metadata" class="mt-4 pt-4 border-t border-gray-200">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-2">📄 메타데이터</h4>
+                                <div class="text-xs text-gray-600 space-y-1">
+                                    <div x-show="fullContentDocument.score">
+                                        유사도: <span x-text="(fullContentDocument.score * 100).toFixed(1)"></span>%
+                                    </div>
+                                    <div x-show="fullContentDocument.documentId">
+                                        문서 ID: <span x-text="fullContentDocument.documentId"></span>
+                                    </div>
+                                    <div x-show="fullContentDocument.chunkIndex !== undefined">
+                                        청크 인덱스: <span x-text="fullContentDocument.chunkIndex"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function ragApp() {
+            return {
+                // 문서 업로드 관련
+                selectedFiles: [],
+                documentTitle: '',
+                documentContent: '',
+                uploading: false,
+                uploadStatus: '',
+                uploadSuccess: false,
+                documentCount: 0,
+                isDragging: false,
+                uploadProgress: 0,
+                currentFileIndex: 0,
+                totalFiles: 0,
+
+                // 채팅 관련
+                messages: [],
+                currentQuestion: '',
+                questioning: false,
+                searchStrategy: 'hybrid',
+
+                // 설정 관련
+                showSettings: false,
+                activeTab: 'parsing',
+                settings: {
+                    chunking: {
+                        method: 'token_sentence',
+                        chunk_size: 512,
+                        overlap: 50,
+                        unit: 'token'
+                    },
+                    llm: {
+                        provider: 'openai',
+                        model_name: 'gpt-3.5-turbo',
+                        api_key: '',
+                        temperature: 0.1,
+                        vllm_base_url: 'http://localhost:8000',
+                        ollama_base_url: 'http://localhost:11434'
+                    },
+                    parser: {
+                        parser_type: 'docling'
+                    },
+                    embedding: {
+                        model_name: 'jinaai/jina-embeddings-v3'
+                    },
+                    retrieval: {
+                        search_limit: 5,
+                        score_threshold: 0.3,
+                        use_hybrid: false
+                    }
+                },
+
+                // 전체 내용 보기 관련
+                showFullContent: false,
+                loadingFullContent: false,
+                fullContentDocument: {
+                    title: '',
+                    content: '',
+                    chunkId: '',
+                    documentId: '',
+                    chunkIndex: null,
+                    score: null,
+                    metadata: false
+                },
+
+                init() {
+                    this.refreshStats();
+                    this.loadSettings();
+                },
+
+                async loadSettings() {
+                    try {
+                        const response = await fetch('/settings');
+                        if (response.ok) {
+                            this.settings = await response.json();
+                        }
+                    } catch (error) {
+                        console.error('설정 로드 실패:', error);
+                    }
+                },
+
+                async saveSettings() {
+                    try {
+                        // 현재 설정과 새 설정 비교하여 임베딩 모델 변경 확인
+                        const currentResponse = await fetch('/settings');
+                        const currentSettings = await currentResponse.json();
+
+                        const embeddingChanged = currentSettings.embedding.model_name !== this.settings.embedding.model_name;
+
+                        // 임베딩 모델이 변경된 경우 경고 표시
+                        if (embeddingChanged) {
+                            const confirmed = confirm(
+                                '⚠️ 임베딩 모델을 변경하시겠습니까?\n\n' +
+                                '임베딩 모델을 변경하면 기존의 모든 벡터스토어 데이터가 삭제됩니다.\n' +
+                                '변경 후에는 문서를 다시 업로드해야 합니다.\n\n' +
+                                '계속하시겠습니까?'
+                            );
+
+                            if (!confirmed) {
+                                // 취소된 경우 원래 설정으로 되돌림
+                                this.settings.embedding.model_name = currentSettings.embedding.model_name;
+                                return;
+                            }
+                        }
+
+                        const response = await fetch('/settings', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(this.settings)
+                        });
+
+                        if (response.ok) {
+                            const result = await response.json();
+
+                            if (result.embedding_changed) {
+                                // 임베딩 모델이 변경된 경우 벡터스토어 재초기화
+                                const reinitialize = confirm(
+                                    '✅ 설정이 저장되었습니다.\n\n' +
+                                    '임베딩 모델이 변경되었습니다. 지금 벡터스토어를 재초기화하시겠습니까?\n' +
+                                    '(나중에 수동으로 재초기화할 수도 있습니다)'
+                                );
+
+                                if (reinitialize) {
+                                    await this.reinitializeVectorStore();
+                                }
+                            } else {
+                                alert('설정이 저장되었습니다.');
+                            }
+
+                            this.showSettings = false;
+                        } else {
+                            throw new Error('설정 저장 실패');
+                        }
+                    } catch (error) {
+                        console.error('설정 저장 실패:', error);
+                        alert('설정 저장에 실패했습니다: ' + error.message);
+                    }
+                },
+
+                async reinitializeVectorStore() {
+                    try {
+                        const response = await fetch('/vectorstore/reinitialize', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            }
+                        });
+
+                        if (response.ok) {
+                            const result = await response.json();
+                            alert('✅ ' + result.message);
+                            // 문서 통계 새로고침
+                            this.refreshStats();
+                        } else {
+                            throw new Error('벡터스토어 재초기화 실패');
+                        }
+                    } catch (error) {
+                        console.error('벡터스토어 재초기화 실패:', error);
+                        alert('벡터스토어 재초기화에 실패했습니다: ' + error.message);
+                    }
+                },
+
+                // 드래그 앤 드롭 처리
+                handleDrop(event) {
+                    event.preventDefault();
+                    const files = Array.from(event.dataTransfer.files);
+                    const items = Array.from(event.dataTransfer.items);
+
+                    // 폴더가 드롭된 경우 처리
+                    if (items.length > 0 && items[0].webkitGetAsEntry) {
+                        this.handleDroppedItems(items);
+                    } else {
+                        this.addFiles(files);
+                    }
+                },
+
+                // 드롭된 아이템들 처리 (폴더 포함)
+                async handleDroppedItems(items) {
+                    const allFiles = [];
+
+                    for (const item of items) {
+                        const entry = item.webkitGetAsEntry();
+                        if (entry) {
+                            const files = await this.processEntry(entry);
+                            allFiles.push(...files);
+                        }
+                    }
+
+                    this.addFiles(allFiles);
+                },
+
+                // 파일/폴더 엔트리 처리
+                async processEntry(entry) {
+                    if (entry.isFile) {
+                        return new Promise((resolve) => {
+                            entry.file((file) => {
+                                if (this.isValidFileType(file)) {
+                                    resolve([file]);
+                                } else {
+                                    resolve([]);
+                                }
+                            });
+                        });
+                    } else if (entry.isDirectory) {
+                        const files = [];
+                        const dirReader = entry.createReader();
+
+                        return new Promise((resolve) => {
+                            const readEntries = async () => {
+                                dirReader.readEntries(async (entries) => {
+                                    if (entries.length === 0) {
+                                        resolve(files);
+                                        return;
+                                    }
+
+                                    for (const subEntry of entries) {
+                                        const subFiles = await this.processEntry(subEntry);
+                                        files.push(...subFiles);
+                                    }
+
+                                    readEntries(); // 재귀적으로 더 많은 엔트리 읽기
+                                });
+                            };
+                            readEntries();
+                        });
+                    }
+                    return [];
+                },
+
+                // 파일 타입 검증
+                isValidFileType(file) {
+                    const validTypes = ['.pdf', '.docx', '.txt', '.md'];
+                    const fileName = file.name.toLowerCase();
+                    return validTypes.some(type => fileName.endsWith(type));
+                },
+
+                // 파일 선택 처리
+                handleFileSelect(event) {
+                    const files = Array.from(event.target.files);
+                    this.addFiles(files);
+                },
+
+                // 폴더 선택 처리
+                handleFolderSelect(event) {
+                    const files = Array.from(event.target.files);
+                    this.addFiles(files);
+                },
+
+                // 파일 추가
+                addFiles(files) {
+                    const validFiles = files.filter(file => this.isValidFileType(file));
+
+                    // 중복 파일 제거
+                    for (const file of validFiles) {
+                        const exists = this.selectedFiles.some(existingFile =>
+                            existingFile.name === file.name && existingFile.size === file.size
+                        );
+                        if (!exists) {
+                            this.selectedFiles.push(file);
+                        }
+                    }
+
+                    if (validFiles.length !== files.length) {
+                        this.uploadStatus = `${files.length - validFiles.length}개 파일이 지원되지 않는 형식입니다.`;
+                        this.uploadSuccess = false;
+                    }
+                },
+
+                // 파일 제거
+                removeFile(fileToRemove) {
+                    this.selectedFiles = this.selectedFiles.filter(file => file !== fileToRemove);
+                },
+
+                // 문서 업로드
+                async uploadDocument() {
+                    if (this.selectedFiles.length === 0 && (!this.documentTitle || !this.documentContent)) {
+                        this.uploadStatus = '파일을 선택하거나 텍스트를 입력해주세요.';
+                        this.uploadSuccess = false;
+                        return;
+                    }
+
+                    this.uploading = true;
+                    this.uploadStatus = '';
+                    this.uploadProgress = 0;
+                    this.currentFileIndex = 0;
+
+                    try {
+                        if (this.selectedFiles.length > 0) {
+                            // 여러 파일 업로드
+                            this.totalFiles = this.selectedFiles.length;
+                            let successCount = 0;
+                            let failedFiles = [];
+
+                            for (let i = 0; i < this.selectedFiles.length; i++) {
+                                this.currentFileIndex = i + 1;
+                                const file = this.selectedFiles[i];
+
+                                try {
+                                    const formData = new FormData();
+                                    formData.append('file', file);
+
+                                    // 폴더 정보 추가
+                                    if (file.webkitRelativePath) {
+                                        const pathParts = file.webkitRelativePath.split('/');
+                                        const folderPath = pathParts.slice(0, -1).join('/');
+                                        const folderName = pathParts[0]; // 최상위 폴더명
+
+                                        formData.append('folder_path', folderPath);
+                                        formData.append('folder_name', folderName);
+                                    }
+
+                                    const response = await fetch('/documents/upload', {
+                                        method: 'POST',
+                                        body: formData
+                                    });
+
+                                    if (response.ok) {
+                                        successCount++;
+                                    } else {
+                                        const error = await response.json();
+                                        failedFiles.push(`${file.name}: ${error.detail || '업로드 실패'}`);
+                                    }
+                                } catch (error) {
+                                    failedFiles.push(`${file.name}: ${error.message}`);
+                                }
+
+                                this.uploadProgress = Math.round((i + 1) / this.selectedFiles.length * 100);
+                            }
+
+                            // 결과 메시지
+                            if (successCount === this.selectedFiles.length) {
+                                this.uploadStatus = `모든 파일이 성공적으로 업로드되었습니다! (${successCount}개)`;
+                                this.uploadSuccess = true;
+                                this.selectedFiles = [];
+                            } else if (successCount > 0) {
+                                this.uploadStatus = `${successCount}개 파일이 업로드되었습니다. 실패: ${failedFiles.length}개`;
+                                this.uploadSuccess = false;
+                            } else {
+                                this.uploadStatus = '모든 파일 업로드에 실패했습니다.';
+                                this.uploadSuccess = false;
+                            }
+
+                            if (failedFiles.length > 0) {
+                                console.error('실패한 파일들:', failedFiles);
+                            }
+                        } else {
+                            // 텍스트 업로드 (기존 코드)
+                            const response = await fetch('/upload/text', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    title: this.documentTitle,
+                                    content: this.documentContent
+                                })
+                            });
+
+                            if (response.ok) {
+                                this.uploadStatus = '텍스트가 성공적으로 업로드되었습니다!';
+                                this.uploadSuccess = true;
+                                this.documentTitle = '';
+                                this.documentContent = '';
+                            } else {
+                                const error = await response.json();
+                                throw new Error(error.detail || '업로드 실패');
+                            }
+                        }
+
+                        this.refreshStats();
+                    } catch (error) {
+                        this.uploadStatus = '업로드 중 오류가 발생했습니다: ' + error.message;
+                        this.uploadSuccess = false;
+                    } finally {
+                        this.uploading = false;
+                        this.uploadProgress = 0;
+                        this.currentFileIndex = 0;
+                        this.totalFiles = 0;
+                    }
+                },
+
+                async refreshStats() {
+                    try {
+                        const response = await fetch('/documents/count');
+                        if (response.ok) {
+                            const result = await response.json();
+                            this.documentCount = result.total_documents;
+                        }
+                    } catch (error) {
+                        console.error('통계 조회 실패:', error);
+                    }
+                },
+
+                async askQuestion() {
+                    if (!this.currentQuestion.trim() || this.questioning) return;
+
+                    const question = this.currentQuestion.trim();
+                    this.currentQuestion = '';
+                    this.questioning = true;
+
+                    // 사용자 메시지 추가
+                    this.messages.push({
+                        id: Date.now(),
+                        type: 'user',
+                        content: question,
+                        timestamp: new Date().toLocaleTimeString()
+                    });
+
+                    // 로딩 메시지 추가
+                    const loadingId = Date.now() + 1;
+                    this.messages.push({
+                        id: loadingId,
+                        type: 'loading',
+                        content: '',
+                        timestamp: ''
+                    });
+
+                    this.scrollToBottom();
+
+                    try {
+                        const response = await fetch('/qa', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                question: question,
+                                limit: 5,
+                                threshold: 0.3,
+                                strategy: this.searchStrategy
+                            })
+                        });
+
+                        // 로딩 메시지 제거
+                        this.messages = this.messages.filter(m => m.id !== loadingId);
+
+                        if (response.ok) {
+                            const result = await response.json();
+
+                            // AI 응답 메시지 생성
+                            const assistantMessage = {
+                                id: Date.now() + 2,
+                                type: 'assistant',
+                                content: result.answer,
+                                sources: result.context_chunks,
+                                timestamp: new Date().toLocaleTimeString(),
+                                query_analysis: result.query_analysis,
+                                used_documents: result.used_documents
+                            };
+
+                            this.messages.push(assistantMessage);
+                        } else {
+                            throw new Error('답변 생성 실패');
+                        }
+                    } catch (error) {
+                        // 로딩 메시지 제거
+                        this.messages = this.messages.filter(m => m.id !== loadingId);
+
+                        // 오류 메시지 추가
+                        this.messages.push({
+                            id: Date.now() + 3,
+                            type: 'assistant',
+                            content: '죄송합니다. 답변을 생성하는 중 오류가 발생했습니다: ' + error.message,
+                            timestamp: new Date().toLocaleTimeString()
+                        });
+                    } finally {
+                        this.questioning = false;
+                        this.scrollToBottom();
+                    }
+                },
+
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const container = document.getElementById('messageContainer');
+                        container.scrollTop = container.scrollHeight;
+                    });
+                },
+
+                async viewChunkContent(source) {
+                    this.showFullContent = true;
+                    this.loadingFullContent = true;
+
+                    // 청크 정보 설정 - undefined 값들을 안전하게 처리
+                    this.fullContentDocument = {
+                        title: (source.metadata && source.metadata.title) || '알 수 없는 문서',
+                        content: source.content || '내용 없음',
+                        chunkId: source.unique_chunk_index || `${source.document_id || 'unknown'}#${(source.metadata && source.metadata.chunk_index) || 0}`,
+                        documentId: source.document_id || '',
+                        chunkIndex: source.metadata && source.metadata.chunk_index,
+                        score: source.score || 0,
+                        metadata: true
+                    };
+
+                    // 로딩 효과를 위한 짧은 지연
+                    setTimeout(() => {
+                        this.loadingFullContent = false;
+                    }, 200);
+                },
+
+                async viewFullContent(documentId, title) {
+                    this.showFullContent = true;
+                    this.loadingFullContent = true;
+                    this.fullContentDocument = {
+                        title: title || '문서 전체 내용',
+                        content: '',
+                        chunkId: '',
+                        documentId: '',
+                        chunkIndex: null,
+                        score: null,
+                        metadata: false
+                    };
+
+                    try {
+                        const response = await fetch(`/documents/${documentId}/content`);
+                        if (response.ok) {
+                            const result = await response.json();
+                            this.fullContentDocument.content = result.content;
+                        } else {
+                            throw new Error('문서 내용을 불러올 수 없습니다.');
+                        }
+                    } catch (error) {
+                        this.fullContentDocument.content = '오류: ' + error.message;
+                    } finally {
+                        this.loadingFullContent = false;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>
