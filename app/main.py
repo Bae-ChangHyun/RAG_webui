@@ -145,9 +145,11 @@ async def create_text_document(document: DocumentCreate):
 async def search_documents(request: SearchRequest):
     """문서를 검색합니다."""
     try:
-        # 검색 전략 결정
-        strategy = "hybrid"
-        if request.use_hybrid is not None:
+        # 검색 전략 결정 - strategy 필드를 우선적으로 사용
+        strategy = "hybrid"  # 기본값
+        if request.strategy:
+            strategy = request.strategy
+        elif request.use_hybrid is not None:
             strategy = "hybrid" if request.use_hybrid else "vector"
         
         # 문서 검색
@@ -180,9 +182,11 @@ async def question_answer(request: SearchRequest):
         
         question = request.question or request.query
         
-        # 검색 전략 결정
-        strategy = "hybrid"
-        if request.use_hybrid is not None:
+        # 검색 전략 결정 - strategy 필드를 우선적으로 사용
+        strategy = "hybrid"  # 기본값
+        if request.strategy:
+            strategy = request.strategy
+        elif request.use_hybrid is not None:
             strategy = "hybrid" if request.use_hybrid else "vector"
         
         # 문서 검색
