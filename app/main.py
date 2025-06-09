@@ -492,6 +492,11 @@ async def main_page(request: Request):
     """메인 페이지를 반환합니다."""
     return templates.TemplateResponse("index.html", {"request": request})
 
+def run():
+    """FastAPI 애플리케이션을 실행합니다."""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

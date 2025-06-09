@@ -1,6 +1,5 @@
-def main():
-    print("Hello from rag-test!")
+from app.main import run
 
 
 if __name__ == "__main__":
-    main()
+    run()
