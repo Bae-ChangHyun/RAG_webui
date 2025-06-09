@@ -1,20 +1,9 @@
 import json
 import logging
 import re
-from typing import Dict, List, Optional, Any
-from pydantic import BaseModel
+from typing import Dict, List
 from .models import LLMSettings, LLMProvider
-from .models import QueryAnalysisResult, QueryType
 
-# LlamaIndex 임포트
-try:
-    from llama_index.llms.openai import OpenAI
-    from llama_index.llms.gemini import Gemini
-    from llama_index.core.output_parsers import PydanticOutputParser
-    from llama_index.core.prompts import PromptTemplate
-    from llama_index.core import Response
-except ImportError:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +59,25 @@ class LLMService:
             if not self.is_available():
                 raise Exception("LLM 서비스가 사용 불가능합니다.")
             
-            # 컨텍스트 포맷팅
-            context_text = "\n\n".join([
-                f"문서 {i+1}:\n{chunk['content']}"
-                for i, chunk in enumerate(context_chunks)
-            ])
+            # 컨텍스트 포맷팅 - document_id별로 그룹화하고 chunk_idx로 정렬
+            from collections import defaultdict
+            
+            documents = defaultdict(list)
+            for chunk in context_chunks:
+                doc_id = chunk.get('document_id', 'unknown')
+                documents[doc_id].append(chunk)
+            
+            # 각 문서의 청크들을 chunk_idx로 정렬하고 합치기
+            formatted_documents = []
+            for doc_id, chunks in documents.items():
+                # chunk_idx로 정렬 (chunk_idx가 없는 경우 0으로 처리)
+                sorted_chunks = sorted(chunks, key=lambda x: x.get('chunk_idx', 0))
+                
+                # 같은 문서의 청크들을 하나로 합치기
+                combined_content = "\n".join([chunk['content'] for chunk in sorted_chunks])
+                formatted_documents.append(f"문서 {doc_id}:\n{combined_content}")
+            
+            context_text = "\n\n".join(formatted_documents)
             
             # 프롬프트 생성
             system_prompt = self._get_system_prompt()
@@ -135,7 +138,7 @@ class LLMService:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.3,
-            max_tokens=1500
+            #max_tokens=1500
         )
         return self._remove_think_tags(response.choices[0].message.content)
     
@@ -149,7 +152,7 @@ class LLMService:
             full_prompt,
             generation_config={
                 "temperature": 0.3,
-                "max_output_tokens": 1500,
+                #"max_output_tokens": 1500,
             }
         )
         
@@ -164,7 +167,7 @@ class LLMService:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.3,
-            max_tokens=1500
+            #max_tokens=1500
         )
         return self._remove_think_tags(response.choices[0].message.content)
     
@@ -177,7 +180,7 @@ class LLMService:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.3,
-            max_tokens=1500
+            #max_tokens=1500
         )
         return self._remove_think_tags(response.choices[0].message.content)
     
