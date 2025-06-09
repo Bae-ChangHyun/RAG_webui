@@ -1,67 +1,21 @@
 from typing import List, Dict, Optional
 import logging
-from enum import Enum
 
-from pydantic import Field
-from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers.ensemble import EnsembleRetriever
-from langchain.schema import Document
-from langchain.schema.retriever import BaseRetriever
+from langchain_qdrant import RetrievalMode
 
 from .database import QdrantDatabase
 from .llm import LLMService
 from .settings import SettingsManager
+
 settings_manager = SettingsManager()
 logger = logging.getLogger(__name__)
 
-class VectorRetriever(BaseRetriever):
-    """Qdrant 벡터 검색을 위한 LangChain 호환 retriever"""
-    
-    database: QdrantDatabase = Field(..., description="Qdrant database instance")
-    k: int = Field(default=5, description="Number of documents to retrieve")
-    filters: Optional[Dict] = Field(default=None, description="Search filters")
-    
-    class Config:
-        arbitrary_types_allowed = True
-    
-    def _get_relevant_documents(self, query: str) -> List[Document]:
-        """벡터 검색을 수행하고 Document 리스트를 반환합니다."""
-        try:
-            results = self.database.search(
-                query=query,
-                k=self.k,
-                filter=self.filters
-            )
-            
-            documents = []
-            for result in results:
-                metadata = result["metadata"]
-                doc = Document(
-                    page_content=result["content"],
-                    metadata={
-                        **metadata,
-                        "score": result["score"],
-                        "chunk_index": result.get("chunk_index"),
-                        "document_id": result.get("document_id"),
-                        "unique_chunk_index": f"{result.get('document_id', 'unknown')}#{metadata.get('chunk_index', 0)}"
-                    }
-                )
-                documents.append(doc)
-            
-            return documents
-            
-        except Exception as e:
-            logger.error(f"벡터 검색 중 오류 발생: {e}")
-            return []
-
-class RetrievalStrategy(str, Enum):
-    VECTOR = "vector"
-    BM25 = "bm25" 
-    HYBRID = "hybrid"
-
 class DocumentRetriever:
-    def __init__(self, llm_service: LLMService):
-        self.db = QdrantDatabase(embedding_model_name=settings_manager.get_embedding_settings().model_name)
+    """문서 검색을 위한 retriever 클래스 - langchain-qdrant의 RetrievalMode 활용"""
+    
+    def __init__(self, db : QdrantDatabase, llm_service: LLMService = None):
+        """초기화"""
+        self.db = db
         self.llm_service = llm_service
     
     def search_documents(self, 
@@ -69,7 +23,7 @@ class DocumentRetriever:
                         limit: int = 5, 
                         threshold: float = 0.0, 
                         document_id: Optional[str] = None,
-                        strategy: str = "hybrid") -> Dict:
+                        strategy: str = "dense") -> Dict:
         """문서에서 유사한 내용을 검색합니다."""
         try:
             if not query or query.strip() == "":
@@ -79,12 +33,20 @@ class DocumentRetriever:
                     "total_count": 0
                 }
             
-            # 문자열을 RetrievalStrategy enum으로 변환
+            # 문자열을 RetrievalMode로 변환
             try:
-                strategy_enum = RetrievalStrategy(strategy.lower())
+                if strategy.lower() == "dense" or strategy.lower() == "vector":
+                    retrieval_mode = RetrievalMode.DENSE
+                elif strategy.lower() == "sparse" or strategy.lower() == "bm25":
+                    retrieval_mode = RetrievalMode.SPARSE
+                elif strategy.lower() == "hybrid":
+                    retrieval_mode = RetrievalMode.HYBRID
+                else:
+                    logger.warning(f"알 수 없는 검색 전략: {strategy}, 기본값(dense) 사용")
+                    retrieval_mode = RetrievalMode.DENSE
             except ValueError:
-                logger.warning(f"알 수 없는 검색 전략: {strategy}, 기본값(hybrid) 사용")
-                strategy_enum = RetrievalStrategy.HYBRID
+                logger.warning(f"검색 전략 변환 실패: {strategy}, 기본값(dense) 사용")
+                retrieval_mode = RetrievalMode.DENSE
             
             # 메타데이터 필터 설정
             filters = None
@@ -93,187 +55,33 @@ class DocumentRetriever:
                     "document_id": document_id
                 }
             
-            # 전략에 따른 검색기 생성 및 검색 수행
-            results = self._retrieve_with_strategy(
+            # QdrantVectorStore의 search 메서드 사용
+            results = self.db.search(
                 query=query,
-                limit=limit,
-                threshold=threshold,
-                filters=filters,
-                strategy=strategy_enum
+                k=limit,
+                filter=filters,
+                retrieval_mode=retrieval_mode
             )
             
-            return {
-                "query": query,
-                "results": results,
-                "total_count": len(results)
-            }
+            # 점수 필터링
+            filtered_results = [
+                result for result in results
+                if result["score"] >= threshold
+            ]
             
-        except Exception as e:
-            logger.error(f"문서 검색 오류: {e}")
-            return {
-                "query": query,
-                "results": [],
-                "total_count": 0,
-                "error": str(e)
-            }
-    
-    def _retrieve_with_strategy(self, 
-                          query: str, 
-                          limit: int,
-                          threshold: float,
-                          filters: Optional[Dict],
-                          strategy: RetrievalStrategy) -> List[Dict]:
-        """선택된 전략으로 검색을 수행합니다."""
+            # unique_chunk_index 추가
+            for result in filtered_results:
+                result["unique_chunk_index"] = f"{result.get('document_id', 'unknown')}#{result.get('metadata', {}).get('chunk_index', 0)}"
         
-        try:
-            if strategy == RetrievalStrategy.VECTOR:
-                results = self.db.search(
-                    query=query,
-                    k=limit,
-                    filter=filters
-                )
-                # unique_chunk_index 추가
-                for result in results:
-                    result["unique_chunk_index"] = f"{result.get('document_id', 'unknown')}#{result.get('metadata', {}).get('chunk_index', 0)}"
             
-            elif strategy == RetrievalStrategy.BM25:
-                # 모든 문서 가져오기
-                all_docs = []
-                try:
-                    points, _ = self.db.client.scroll(
-                        collection_name=self.db.collection_name,
-                        limit=10000,
-                        with_payload=True
-                    )
-                    
-                    for point in points:
-                        if point.payload and "content" in point.payload:
-                            all_docs.append(Document(
-                                page_content=point.payload["content"],
-                                metadata=point.payload.get("metadata", {})
-                            ))
-                    
-                    if not all_docs:
-                        logger.warning("BM25 검색을 위한 문서가 없습니다.")
-                        return []
-                    
-                    # BM25 검색기 생성
-                    bm25_retriever = BM25Retriever.from_documents(all_docs)
-                    bm25_results = bm25_retriever.invoke(query)
-                    
-                    # 결과 포맷팅 - 실제 BM25 점수 계산
-                    results = []
-                    for i, doc in enumerate(bm25_results):
-                        # BM25에서는 순위를 기반으로 점수 계산 (높은 순위일수록 높은 점수)
-                        bm25_score = max(0.1, 1.0 - (i * 0.1))  # 순위 기반 점수 (0.1~1.0)
-                        results.append({
-                            "content": doc.page_content,
-                            "metadata": doc.metadata,
-                            "score": bm25_score,
-                            "chunk_index": doc.metadata.get("chunk_index"),
-                            "document_id": doc.metadata.get("document_id"),
-                            "unique_chunk_index": f"{doc.metadata.get('document_id', 'unknown')}#{doc.metadata.get('chunk_index', 0)}"
-                        })
-                    results = results[:limit]  # 지정된 개수만큼 제한
-                except Exception as e:
-                    logger.error(f"BM25 검색 중 오류 발생: {e}")
-                    return []
-                
-            elif strategy == RetrievalStrategy.HYBRID:
-                # EnsembleRetriever를 사용한 RRF 기반 하이브리드 검색
-                try:
-                    # 벡터 검색기 생성
-                    vector_retriever = VectorRetriever(
-                        database=self.db,
-                        k=limit,
-                        filters=filters
-                    )
-                    
-                    # BM25용 모든 문서 가져오기
-                    all_docs = []
-                    points, _ = self.db.client.scroll(
-                        collection_name=self.db.collection_name,
-                        limit=10000,
-                        with_payload=True
-                    )
-                    
-                    for point in points:
-                        if point.payload and "content" in point.payload:
-                            # 필터가 있는 경우 필터링 적용
-                            if filters:
-                                metadata = point.payload.get("metadata", {})
-                                if not all(metadata.get(k) == v for k, v in filters.items()):
-                                    continue
-                            
-                            all_docs.append(Document(
-                                page_content=point.payload["content"],
-                                metadata=point.payload.get("metadata", {})
-                            ))
-                    
-                    if not all_docs:
-                        logger.warning("하이브리드 검색을 위한 문서가 없습니다.")
-                        # 벡터 검색만 수행
-                        vector_docs = vector_retriever._get_relevant_documents(query)
-                        results = [
-                            {
-                                "content": doc.page_content,
-                                "metadata": {k: v for k, v in doc.metadata.items() if k not in ["score", "chunk_index", "document_id", "unique_chunk_index"]},
-                                "score": doc.metadata.get("score", 0.0),
-                                "chunk_index": doc.metadata.get("chunk_index"),
-                                "document_id": doc.metadata.get("document_id"),
-                                "unique_chunk_index": doc.metadata.get("unique_chunk_index")
-                            }
-                            for doc in vector_docs
-                        ]
-                        return results
-                    
-                    # BM25 검색기 생성
-                    bm25_retriever = BM25Retriever.from_documents(all_docs)
-                    bm25_retriever.k = limit
-                    
-                    # EnsembleRetriever 생성 (RRF 사용)
-                    ensemble_retriever = EnsembleRetriever(
-                        retrievers=[vector_retriever, bm25_retriever],
-                        weights=[0.7, 0.3]  # 벡터 검색과 BM25 검색에 동일한 가중치
-                    )
-                    
-                    # 검색 수행
-                    ensemble_docs = ensemble_retriever.invoke(query)
-                    
-                    # 결과 포맷팅
-                    results = []
-                    for doc in ensemble_docs:
-                        metadata = {k: v for k, v in doc.metadata.items() if k not in ["score", "chunk_index", "document_id", "unique_chunk_index"]}
-                        result = {
-                            "content": doc.page_content,
-                            "metadata": metadata,
-                            "score": doc.metadata.get("score", 0.0),
-                            "chunk_index": doc.metadata.get("chunk_index"),
-                            "document_id": doc.metadata.get("document_id"),
-                            "unique_chunk_index": doc.metadata.get("unique_chunk_index", f"{doc.metadata.get('document_id', 'unknown')}#{metadata.get('chunk_index', 0)}")
-                        }
-                        results.append(result)
-                    
-                except Exception as e:
-                    logger.error(f"하이브리드 검색 중 오류 발생: {e}")
-                    # 폴백으로 벡터 검색만 수행
-                    return self.db.search(
-                        query=query,
-                        k=limit,
-                        filter=filters
-                    )
-            else:
-                results = self.db.search(
-                    query=query,
-                    k=limit,
-                    filter=filters
-                )
-
+            # 점수 기준 정렬
+            filtered_results.sort(key=lambda x: x["score"], reverse=True)
+            
             # === 상위 2개 문서의 앞뒤 청크 추가 ===
             # 1. 상위 2개 추출
-            top2 = results[:2]
+            top2 = filtered_results[:2]
             extra_chunks = []
-            seen_keys = set(r["unique_chunk_index"] for r in results)
+            seen_keys = set(r["unique_chunk_index"] for r in filtered_results)
             for doc in top2:
                 doc_id = doc.get("document_id")
                 chunk_idx = doc.get("chunk_index")
@@ -292,13 +100,14 @@ class DocumentRetriever:
                     chunk_results = self.db.search(
                         query="",  # 내용 무관, 전체에서 필터만 적용
                         k=1,
-                        filter=qdrant_filter
+                        filter=qdrant_filter,
+                        retrieval_mode=retrieval_mode
                     )
                     for chunk in chunk_results:
                         key = f"{doc_id}#{idx}"
                         if key in seen_keys:
                             # 기존에 있던 버전 삭제
-                            results = [r for r in results if r["unique_chunk_index"] != key]
+                            filtered_results = [r for r in filtered_results if r["unique_chunk_index"] != key]
                         else:
                             chunk["unique_chunk_index"] = key
                             seen_keys.add(key)
@@ -308,40 +117,42 @@ class DocumentRetriever:
                         chunk["score"] = max(main_score - 0.01, 0.0)
                         extra_chunks.append(chunk)
             # extra_chunks를 기존 results에 추가
-            results.extend(extra_chunks)
-
-            # 점수 필터링
-            results = [
-                result for result in results
-                if result.get("score", 0.0) >= threshold
-            ]
+            filtered_results.extend(extra_chunks)
 
             # content 길이 20 미만 제거
-            results = [
-                result for result in results
+            filtered_results = [
+                result for result in filtered_results
                 if len(result.get("content", "")) >= 20
             ]
 
             # 점수 기준 재정렬
-            results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+            filtered_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
 
             # 중복 unique_chunk_index 제거 (최초 등장만 유지)
             deduped = {}
-            for r in results:
+            for r in filtered_results:
                 key = r["unique_chunk_index"]
                 if key not in deduped:
                     deduped[key] = r
-            results = list(deduped.values())
+            filtered_results = list(deduped.values())
 
-            return results[:limit]
+            return {
+                    "query": query,
+                    "results": filtered_results[:limit],
+                    "total_count": len(filtered_results)
+                }
             
         except Exception as e:
-            logger.error(f"검색 중 오류 발생: {e}")
-            return []
+            logger.error(f"문서 검색 오류: {e}")
+            return {
+                "query": query,
+                "results": [],
+                "total_count": 0,
+                "error": str(e)
+            }
     
-    def search_by_document_id(self, document_id: str, query: str = "", limit: int = 1000, threshold: float = 0.0, strategy: str = "vector") -> Dict:
+    def search_by_document_id(self, document_id: str, query: str = "", limit: int = 1000, threshold: float = 0.0, strategy: str = "dense") -> Dict:
         """특정 문서 ID 내에서 모든 청크를 검색합니다."""
-        # reuse search_documents with document_id filter
         return self.search_documents(
             query=query,
             limit=limit,
