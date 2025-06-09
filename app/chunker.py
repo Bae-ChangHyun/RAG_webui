@@ -5,6 +5,31 @@ import re
 from .models import ChunkingMethod, ChunkingSettings
 from .config import settings
 
+class LazySemanticChunker:
+        """임베딩 모델을 필요할 때만 로드하는 Semantic Chunker"""
+        
+        def __init__(self, embedding_model: str):
+            self.embedding_model = embedding_model
+            self._semantic_chunker = None
+        
+        def _get_semantic_chunker(self):
+            """실제 사용 시에만 semantic chunker를 생성합니다."""
+            if self._semantic_chunker is None:
+                from langchain_huggingface import HuggingFaceEmbeddings
+                embeddings = HuggingFaceEmbeddings(
+                    model_name=self.embedding_model,
+                    model_kwargs={
+                        "device": 'cuda',
+                        "trust_remote_code": True
+                    },
+                )
+                self._semantic_chunker = SemanticChunker(embeddings=embeddings)
+            return self._semantic_chunker
+        
+        def split_text(self, text: str) -> List[str]:
+            """텍스트를 분할합니다."""
+            return self._get_semantic_chunker().split_text(text)
+
 class TextChunker:
     def __init__(self, chunking_settings: Optional[ChunkingSettings] = None):
         if chunking_settings:
@@ -63,21 +88,12 @@ class TextChunker:
             chunk_overlap=self.settings.overlap,
             separators=["\n\n", "\n", " ", ""]
         )
-    
+        
     def _create_semantic_chunker(self):
         """Semantic Chunker 기반 splitter (임베딩 기반)"""
+        # 임베딩 모델을 바로 로드하지 않고, 실제 사용 시에만 로드하도록 변경
+        return LazySemanticChunker(embedding_model=settings.embedding_model)
 
-        from langchain_huggingface import HuggingFaceEmbeddings
-        #embeddings = HuggingFaceEmbeddings(model_name=settings.embedding_model)
-        embeddings = HuggingFaceEmbeddings(
-        model_name = settings.embedding_model,
-            model_kwargs={
-            "device":'cuda',
-            "trust_remote_code": True
-            },
-        )
-        return SemanticChunker(embeddings=embeddings)
-    
     def chunk_text(self, text: str, metadata: Dict = None) -> List[Dict]:
         """텍스트를 청크로 나누고 메타데이터를 추가합니다."""
         if metadata is None:

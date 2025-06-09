@@ -40,7 +40,7 @@ parser = DocumentParser(settings_manager.get_parser_settings())
 chunker = TextChunker(settings_manager.get_chunking_settings())
 db = QdrantDatabase(embedding_model_name=settings_manager.get_embedding_settings().model_name)
 llm_service = LLMService(settings_manager.get_llm_settings())
-retriever = DocumentRetriever(llm_service=llm_service)
+retriever = DocumentRetriever(db = db,llm_service=llm_service)
 retrieval_settings = settings_manager.get_retrieval_settings()
 
 @app.get("/api/status")
@@ -57,23 +57,18 @@ async def upload_document(
 ):
     """파일을 업로드하고 벡터 DB에 저장합니다."""
     try:
-        # 파일 내용 읽기
         content = await file.read()
         
-        # 제목 설정
         doc_title = title or file.filename or "Untitled Document"
         
-        # 파일 파싱
         try:
             parsed_content = await parser.parse_file(content, file.filename)
         except Exception as e:
             logger.error(f"파일 파싱 오류: {e}")
             raise HTTPException(status_code=400, detail=f"파일 파싱 실패: {str(e)}")
         
-        # 문서 ID 생성
         document_id = str(uuid.uuid4())
-        
-        # 메타데이터 설정
+
         metadata = {
             "document_id": document_id,
             "title": doc_title,
@@ -149,8 +144,7 @@ async def search_documents(request: SearchRequest):
         strategy = "hybrid"  # 기본값
         if request.strategy:
             strategy = request.strategy
-        elif request.use_hybrid is not None:
-            strategy = "hybrid" if request.use_hybrid else "vector"
+
         
         # 문서 검색
         results = retriever.search_documents(
@@ -184,10 +178,7 @@ async def question_answer(request: SearchRequest):
         
         # 검색 전략 결정 - strategy 필드를 우선적으로 사용
         strategy = "hybrid"  # 기본값
-        if request.strategy:
-            strategy = request.strategy
-        elif request.use_hybrid is not None:
-            strategy = "hybrid" if request.use_hybrid else "vector"
+        if request.strategy: strategy = request.strategy
         
         # 문서 검색
         search_results = retriever.search_documents(
@@ -493,11 +484,9 @@ async def reinitialize_vectorstore():
 
 @app.get("/", response_class=HTMLResponse)
 async def main_page(request: Request):
-    """메인 페이지를 반환합니다."""
     return templates.TemplateResponse("index.html", {"request": request})
 
 def run():
-    """FastAPI 애플리케이션을 실행합니다."""
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
