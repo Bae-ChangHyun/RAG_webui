@@ -135,7 +135,7 @@ class DocumentRetriever:
                 # unique_chunk_index 추가
                 for result in results:
                     result["unique_chunk_index"] = f"{result.get('document_id', 'unknown')}#{result.get('metadata', {}).get('chunk_index', 0)}"
-                
+            
             elif strategy == RetrievalStrategy.BM25:
                 # 모든 문서 가져오기
                 all_docs = []
@@ -262,23 +262,77 @@ class DocumentRetriever:
                         k=limit,
                         filter=filters
                     )
-                
             else:
                 results = self.db.search(
                     query=query,
                     k=limit,
                     filter=filters
                 )
-            
+
+            # === 상위 2개 문서의 앞뒤 청크 추가 ===
+            # 1. 상위 2개 추출
+            top2 = results[:2]
+            extra_chunks = []
+            seen_keys = set(r["unique_chunk_index"] for r in results)
+            for doc in top2:
+                doc_id = doc.get("document_id")
+                chunk_idx = doc.get("chunk_index")
+                if doc_id is None or chunk_idx is None:
+                    continue
+                for offset in range(-2, 3):
+                    idx = chunk_idx + offset
+                    if idx < 0:
+                        continue
+                    qdrant_filter = {
+                        "must": [
+                            {"key": "metadata.document_id", "match": {"value": doc_id}},
+                            {"key": "metadata.chunk_index", "match": {"value": idx}}
+                        ]
+                    }
+                    chunk_results = self.db.search(
+                        query="",  # 내용 무관, 전체에서 필터만 적용
+                        k=1,
+                        filter=qdrant_filter
+                    )
+                    for chunk in chunk_results:
+                        key = f"{doc_id}#{idx}"
+                        if key in seen_keys:
+                            # 기존에 있던 버전 삭제
+                            results = [r for r in results if r["unique_chunk_index"] != key]
+                        else:
+                            chunk["unique_chunk_index"] = key
+                            seen_keys.add(key)
+                        # main chunk보다 0.01 낮은 score로 추가
+                        main_score = doc.get("score", 0.0)
+                        chunk["unique_chunk_index"] = key
+                        chunk["score"] = max(main_score - 0.01, 0.0)
+                        extra_chunks.append(chunk)
+            # extra_chunks를 기존 results에 추가
+            results.extend(extra_chunks)
+
             # 점수 필터링
             results = [
                 result for result in results
-                if result["score"] >= threshold
+                if result.get("score", 0.0) >= threshold
             ]
-            
-            # 점수 기준 정렬
-            results.sort(key=lambda x: x["score"], reverse=True)
-            
+
+            # content 길이 20 미만 제거
+            results = [
+                result for result in results
+                if len(result.get("content", "")) >= 20
+            ]
+
+            # 점수 기준 재정렬
+            results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+
+            # 중복 unique_chunk_index 제거 (최초 등장만 유지)
+            deduped = {}
+            for r in results:
+                key = r["unique_chunk_index"]
+                if key not in deduped:
+                    deduped[key] = r
+            results = list(deduped.values())
+
             return results[:limit]
             
         except Exception as e:
