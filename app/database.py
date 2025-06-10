@@ -5,34 +5,34 @@ from typing import List, Dict, Optional
 from datetime import datetime
 
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import QdrantVectorStore, RetrievalMode, FastEmbedSparse
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, Filter, FieldCondition
 from qdrant_client import models
+
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
 
 class QdrantDatabase:
-    """Qdrant 벡터 데이터베이스 연결 및 설정만 관리"""
     
-    def __init__(self, embedding_model_name: str = None):
+    def __init__(self, embedding_model_name: str = None, retrieval_mode: RetrievalMode = RetrievalMode.HYBRID):
         self.client = QdrantClient(url=settings.qdrant_url)
         self.collection_name = settings.qdrant_collection_name
-        
-        # 임베딩 모델 설정 - 매개변수로 받거나 설정에서 가져옴
+        self.retrieval_mode = retrieval_mode
+
         model_name = embedding_model_name or settings.embedding_model
         self.embedding_model  = HuggingFaceEmbeddings(
                                     model_name = model_name,
                                     model_kwargs={
                                     "device":'cuda',
                                     "trust_remote_code": True
-                                    },
-                                    )
+                                    },)
+        
+        self.sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
         
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=settings.chunk_size,
@@ -44,7 +44,6 @@ class QdrantDatabase:
     def _setup_vector_store(self):
         """벡터스토어 초기화"""
         try:
-            # 컬렉션 존재 확인 및 생성
             collections = self.client.get_collections()
             collection_names = [col.name for col in collections.collections]
             
@@ -72,7 +71,10 @@ class QdrantDatabase:
                 embedding=self.embedding_model,
                 content_payload_key="content",
                 metadata_payload_key="metadata",
+                retrieval_mode=self.retrieval_mode,
+                sparse_embedding= self.sparse_embeddings,
                 vector_name="text-dense",
+                sparse_vector_name="text-sparse",
             )
             
         except Exception as e:
@@ -86,7 +88,6 @@ class QdrantDatabase:
             docs = []
             for doc in documents:
                 if isinstance(doc, dict):
-                    # 메타데이터 병합
                     doc_metadata = doc.get('metadata', {}).copy()
                     if metadata:
                         doc_metadata.update(metadata)
@@ -101,11 +102,7 @@ class QdrantDatabase:
                     if metadata:
                         doc.metadata.update(metadata)
                     docs.append(doc)
-            
-            # 🚨 이중 청킹 제거: 이미 청킹된 문서이므로 text_splitter 사용 안함
-            # texts = self.text_splitter.split_documents(docs)
-            
-            # 벡터스토어에 바로 추가
+
             self.vector_store.add_documents(docs)
             logger.info(f"{len(docs)}개의 문서 청크가 추가됨")
             
@@ -113,9 +110,11 @@ class QdrantDatabase:
             logger.error(f"문서 추가 오류: {e}")
             raise
 
-    def search(self, query: str, k: int = 5, filter: Dict = None) -> List[Dict]:
+    def search(self, query: str, k: int = 5, filter: Dict = None, retrieval_mode: RetrievalMode = None) -> List[Dict]:
         """문서를 검색합니다."""
         try:
+            self.vector_store.retrieval_mode = retrieval_mode
+          
             results = self.vector_store.similarity_search_with_score(
                 query=query,
                 k=k,
