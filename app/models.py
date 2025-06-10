@@ -117,7 +117,7 @@ class QARequest(BaseModel):
     question: str
     limit: int = 5
     threshold: float = 0.7
-    strategy: Optional[str] = "hybrid"  # 'vector', 'bm25', 'hybrid' 중 하나
+    strategy: Optional[str] = "hybrid"  # 'dense', 'sparse', 'hybrid' 중 하나
 
 class QueryAnalysisResult(BaseModel):
     needs_documents: bool

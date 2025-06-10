@@ -1,5 +1,11 @@
+from re import search
+from turtle import st
 from typing import List, Dict, Optional
 import logging
+from konlpy.tag import Kkma, Okt, Komoran, Hannanum
+from kiwipiepy import Kiwi
+from langchain.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
 
 from langchain_qdrant import RetrievalMode
 
@@ -10,6 +16,21 @@ from .settings import SettingsManager
 settings_manager = SettingsManager()
 logger = logging.getLogger(__name__)
 
+def tokenize_kkma(text: str) -> List[str]:
+    return Kkma().morphs(text)
+
+def tokenize_okt(text: str) -> List[str]:
+    return Okt().morphs(text)
+
+def tokenize_kiwi(text: str) -> List[str]:
+    return Kiwi().tokenize(text)
+
+def tokenize_komoran(text: str) -> List[str]:
+    return Komoran().morphs(text)
+
+def tokenize_hannanum(text: str) -> List[str]:
+    return Hannanum().morphs(text)
+
 class DocumentRetriever:
     """문서 검색을 위한 retriever 클래스 - langchain-qdrant의 RetrievalMode 활용"""
     
@@ -17,6 +38,26 @@ class DocumentRetriever:
         """초기화"""
         self.db = db
         self.llm_service = llm_service
+    
+       
+    def get_bm25_retrieval(self, tokenizer = None, weights = [0.5, 0.5], hybrid = False):
+        
+        docs = self.db.get_documents_as_langchain_docs()
+        
+        if tokenizer:
+            bm25_retriever = BM25Retriever.from_documents(docs, preprocess_func = tokenizer)
+        else:
+            bm25_retriever = BM25Retriever.from_documents(docs)
+            
+        if hybrid:
+            qdrant = self.db.vector_store.from_documents(docs, self.db.embedding_model).as_retriever()
+            retriever = EnsembleRetriever(
+                retrievers=[bm25_retriever, qdrant],
+                weights=weights,
+                search_type="mmr",
+            )
+            return retriever
+        return bm25_retriever
     
     def search_documents(self, 
                         query: str, 
@@ -35,12 +76,35 @@ class DocumentRetriever:
             
             # 문자열을 RetrievalMode로 변환
             try:
-                if strategy.lower() == "dense" or strategy.lower() == "vector":
+                if strategy.lower() == "dense":
                     retrieval_mode = RetrievalMode.DENSE
-                elif strategy.lower() == "sparse" or strategy.lower() == "bm25":
+                elif strategy.lower() == "sparse":
                     retrieval_mode = RetrievalMode.SPARSE
                 elif strategy.lower() == "hybrid":
                     retrieval_mode = RetrievalMode.HYBRID
+                elif strategy.lower() == "bm25":
+                    retrieval = self.get_bm25_retrieval(tokenizer = None, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_kkma":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_kkma, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_okt":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_okt, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_kiwi":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_kiwi, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_komoran":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_komoran, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_hannanum":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_hannanum, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_kkma_hybrid":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_kkma, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_okt_hybrid":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_okt, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_kiwi_hybrid":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_kiwi, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_komoran_hybrid":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_komoran, weights = [0.5, 0.5], hybrid = True)
+                elif strategy.lower() == "bm25_hannanum_hybrid":
+                    retrieval = self.get_bm25_retrieval(tokenizer = tokenize_hannanum, weights = [0.5, 0.5], hybrid = True)
+                    
                 else:
                     logger.warning(f"알 수 없는 검색 전략: {strategy}, 기본값(dense) 사용")
                     retrieval_mode = RetrievalMode.DENSE
@@ -54,19 +118,25 @@ class DocumentRetriever:
                 filters = {
                     "document_id": document_id
                 }
-            
-            # QdrantVectorStore의 search 메서드 사용
-            results = self.db.search(
-                query=query,
-                k=limit,
-                filter=filters,
-                retrieval_mode=retrieval_mode
-            )
+            if strategy.startswith("bm25"):
+                results = self.db.bm25_search(
+                    query=query,
+                    k=limit,
+                    retrieval=retrieval
+                )
+            else:    
+                # QdrantVectorStore의 search 메서드 사용
+                results = self.db.search(
+                    query=query,
+                    k=limit,
+                    filter=filters,
+                    retrieval_mode=retrieval_mode
+                )
             
             # 점수 필터링
             filtered_results = [
                 result for result in results
-                if result["score"] >= threshold
+                if "score" not in result or result["score"] >= threshold
             ]
             
             # unique_chunk_index 추가
@@ -101,7 +171,7 @@ class DocumentRetriever:
                         query="",  # 내용 무관, 전체에서 필터만 적용
                         k=1,
                         filter=qdrant_filter,
-                        retrieval_mode=retrieval_mode
+                        retrieval_mode=RetrievalMode.DENSE
                     )
                     for chunk in chunk_results:
                         key = f"{doc_id}#{idx}"
@@ -150,6 +220,10 @@ class DocumentRetriever:
                 "total_count": 0,
                 "error": str(e)
             }
+ 
+            
+        
+        
     
     def search_by_document_id(self, document_id: str, query: str = "", limit: int = 1000, threshold: float = 0.0, strategy: str = "dense") -> Dict:
         """특정 문서 ID 내에서 모든 청크를 검색합니다."""

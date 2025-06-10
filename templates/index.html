@@ -133,7 +133,7 @@
 
             <!-- 채팅 패널 -->
             <div class="lg:col-span-2">
-                <div class="bg-white rounded-lg shadow-md h-[600px] flex flex-col">
+                <div class="bg-white rounded-lg shadow-md h-[900px] flex flex-col">
                     <!-- 채팅 헤더 -->
                     <div class="p-4 border-b border-gray-200">
                         <h2 class="text-xl font-semibold text-gray-800">💬 질문하기</h2>
@@ -247,23 +247,94 @@
                         </div>
 
                         <!-- 검색 전략 옵션 -->
-                        <div class="mt-2 flex items-center">
-                            <span class="text-sm text-gray-600 mr-3">검색 전략:</span>
-                            <label class="flex items-center text-sm text-gray-600 mr-3">
-                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="dense"
-                                    class="mr-1">
-                                Dense 검색
-                            </label>
-                            <label class="flex items-center text-sm text-gray-600 mr-3">
-                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="sparse"
-                                    class="mr-1">
-                                Sparse 검색
-                            </label>
-                            <label class="flex items-center text-sm text-gray-600">
-                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="hybrid"
-                                    class="mr-1">
-                                Hybrid 검색
-                            </label>
+                        <div class="mt-2">
+                            <span class="text-sm text-gray-600 mb-2 block">검색 전략:</span>
+
+                            <!-- 1단계: 기본 전략 선택 -->
+                            <div class="mb-3">
+                                <div class="flex flex-wrap gap-2">
+                                    <button @click="selectBaseStrategy('dense')"
+                                        :class="baseStrategy === 'dense' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                                        class="px-3 py-1 rounded-lg text-sm transition duration-200 hover:bg-blue-500 hover:text-white">
+                                        Dense 검색
+                                    </button>
+                                    <button @click="selectBaseStrategy('sparse')"
+                                        :class="baseStrategy === 'sparse' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                                        class="px-3 py-1 rounded-lg text-sm transition duration-200 hover:bg-blue-500 hover:text-white">
+                                        Sparse 검색
+                                    </button>
+                                    <button @click="selectBaseStrategy('hybrid')"
+                                        :class="baseStrategy === 'hybrid' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                                        class="px-3 py-1 rounded-lg text-sm transition duration-200 hover:bg-blue-500 hover:text-white">
+                                        Hybrid 검색
+                                    </button>
+                                    <button @click="selectBaseStrategy('bm25')"
+                                        :class="baseStrategy === 'bm25' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                                        class="px-3 py-1 rounded-lg text-sm transition duration-200 hover:bg-blue-500 hover:text-white">
+                                        BM25 검색
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 2단계: BM25 형태소 분석기 선택 (BM25 선택시만 표시) -->
+                            <div x-show="baseStrategy === 'bm25'" x-transition class="mb-3">
+                                <span class="text-xs text-gray-600 mb-2 block">형태소 분석기:</span>
+                                <div class="flex flex-wrap gap-2">
+                                    <button @click="selectAnalyzer('none')"
+                                        :class="selectedAnalyzer === 'none' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-green-500 hover:text-white">
+                                        없음
+                                    </button>
+                                    <button @click="selectAnalyzer('kkma')"
+                                        :class="selectedAnalyzer === 'kkma' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-green-500 hover:text-white">
+                                        KKMA
+                                    </button>
+                                    <button @click="selectAnalyzer('okt')"
+                                        :class="selectedAnalyzer === 'okt' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-green-500 hover:text-white">
+                                        OKT
+                                    </button>
+                                    <button @click="selectAnalyzer('kiwi')"
+                                        :class="selectedAnalyzer === 'kiwi' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-green-500 hover:text-white">
+                                        Kiwi
+                                    </button>
+                                    <button @click="selectAnalyzer('komoran')"
+                                        :class="selectedAnalyzer === 'komoran' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-green-500 hover:text-white">
+                                        Komoran
+                                    </button>
+                                    <button @click="selectAnalyzer('hannanum')"
+                                        :class="selectedAnalyzer === 'hannanum' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-green-500 hover:text-white">
+                                        Hannanum
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 3단계: Hybrid 옵션 (BM25 선택시만 표시) -->
+                            <div x-show="baseStrategy === 'bm25'" x-transition class="mb-3">
+                                <span class="text-xs text-gray-600 mb-2 block">하이브리드 옵션:</span>
+                                <div class="flex gap-2">
+                                    <button @click="toggleHybrid(false)"
+                                        :class="!useHybrid ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-purple-500 hover:text-white">
+                                        일반
+                                    </button>
+                                    <button @click="toggleHybrid(true)"
+                                        :class="useHybrid ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'"
+                                        class="px-2 py-1 rounded text-xs transition duration-200 hover:bg-purple-500 hover:text-white">
+                                        하이브리드
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 최종 선택된 전략 표시 -->
+                            <div class="mt-2 p-2 bg-blue-50 rounded-lg">
+                                <span class="text-xs font-medium text-blue-800">선택된 전략: </span>
+                                <span class="text-xs text-blue-600 font-mono" x-text="searchStrategy"></span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -571,6 +642,11 @@
                 questioning: false,
                 searchStrategy: 'hybrid',
 
+                // 검색 전략 선택 관련 추가
+                baseStrategy: 'hybrid',
+                selectedAnalyzer: 'none',
+                useHybrid: false,
+
                 // 설정 관련
                 showSettings: false,
                 activeTab: 'parsing',
@@ -617,6 +693,7 @@
                 init() {
                     this.refreshStats();
                     this.loadSettings();
+                    this.updateSearchStrategy(); // 초기 전략 설정
                 },
 
                 async loadSettings() {
@@ -1076,7 +1153,47 @@
                     } finally {
                         this.loadingFullContent = false;
                     }
-                }
+                },
+
+                // 검색 전략 관련 메서드 추가
+                selectBaseStrategy(strategy) {
+                    this.baseStrategy = strategy;
+                    if (strategy !== 'bm25') {
+                        this.selectedAnalyzer = 'none';
+                        this.useHybrid = false;
+                    }
+                    this.updateSearchStrategy();
+                },
+
+                selectAnalyzer(analyzer) {
+                    this.selectedAnalyzer = analyzer;
+                    this.updateSearchStrategy();
+                },
+
+                toggleHybrid(hybrid) {
+                    this.useHybrid = hybrid;
+                    this.updateSearchStrategy();
+                },
+
+                updateSearchStrategy() {
+                    if (this.baseStrategy === 'bm25') {
+                        let strategy = 'bm25';
+
+                        // 형태소 분석기 추가
+                        if (this.selectedAnalyzer !== 'none') {
+                            strategy += '_' + this.selectedAnalyzer;
+                        }
+
+                        // 하이브리드 옵션 추가
+                        if (this.useHybrid) {
+                            strategy += '_hybrid';
+                        }
+
+                        this.searchStrategy = strategy;
+                    } else {
+                        this.searchStrategy = this.baseStrategy;
+                    }
+                },
             }
         }
     </script>

@@ -135,7 +135,19 @@ class QdrantDatabase:
         except Exception as e:
             logger.error(f"검색 오류: {e}")
             return []
-
+    
+    def bm25_search(self, query: str, k: int = 5, retrieval: Optional[QdrantVectorStore] = None) -> List[Dict]:
+        results = retrieval.get_relevant_documents(query)[:k]
+        return [
+                {
+                    "content": doc.page_content,
+                    "metadata": doc.metadata,
+                    "score": 1,
+                    "chunk_index": doc.metadata.get("chunk_index"),
+                    "document_id": doc.metadata.get("document_id")
+                }
+                for doc in results
+            ]
 
 
     def get_document_count(self) -> int:
@@ -308,3 +320,117 @@ class QdrantDatabase:
         except Exception as e:
             logger.error(f"모든 문서 삭제 오류: {e}")
             raise
+
+    def get_documents_as_langchain_docs(self) -> List[Document]:
+        """벡터스토어에 저장된 모든 문서를 LangChain Document 객체로 반환합니다."""
+        try:
+            points, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=10000,
+                with_payload=True
+            )
+            
+            documents = []
+            for point in points:
+                if point.payload:
+                    content = point.payload.get("content", "")
+                    
+                    # metadata 추출
+                    metadata = point.payload.get("metadata", {}).copy()
+                    
+                    # 직접 저장된 필드들도 metadata에 추가
+                    for key, value in point.payload.items():
+                        if key not in ["content", "metadata"] and value is not None:
+                            metadata[key] = value
+                    
+                    # point ID도 metadata에 추가
+                    metadata["point_id"] = str(point.id)
+                    
+                    documents.append(Document(
+                        page_content=content,
+                        metadata=metadata
+                    ))
+            
+            logger.info(f"{len(documents)}개의 Document 객체를 반환합니다")
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Document 객체 조회 오류: {e}")
+            return []
+
+    def get_document_by_id_as_langchain_docs(self, document_id: str) -> List[Document]:
+        """특정 문서 ID의 모든 청크를 LangChain Document 객체로 반환합니다."""
+        try:
+            points, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=10000,
+                with_payload=True
+            )
+            
+            documents = []
+            for point in points:
+                if point.payload:
+                    # document_id 확인
+                    doc_id = point.payload.get("document_id")
+                    if not doc_id:
+                        metadata = point.payload.get("metadata", {})
+                        if isinstance(metadata, dict):
+                            doc_id = metadata.get("document_id")
+                    
+                    if doc_id == document_id:
+                        content = point.payload.get("content", "")
+                        
+                        # metadata 추출
+                        metadata = point.payload.get("metadata", {}).copy()
+                        
+                        # 직접 저장된 필드들도 metadata에 추가
+                        for key, value in point.payload.items():
+                            if key not in ["content", "metadata"] and value is not None:
+                                metadata[key] = value
+                        
+                        # point ID도 metadata에 추가
+                        metadata["point_id"] = str(point.id)
+                        
+                        documents.append(Document(
+                            page_content=content,
+                            metadata=metadata
+                        ))
+            
+            # chunk_index로 정렬 (있는 경우)
+            documents.sort(key=lambda x: x.metadata.get("chunk_index", 0))
+            
+            logger.info(f"문서 {document_id}의 {len(documents)}개 청크를 Document 객체로 반환합니다")
+            return documents
+            
+        except Exception as e:
+            logger.error(f"문서 ID {document_id}의 Document 객체 조회 오류: {e}")
+            return []
+
+    def search_as_documents(self, query: str, k: int = 5, filter: Dict = None, retrieval_mode: RetrievalMode = None) -> List[Document]:
+        """검색 결과를 LangChain Document 객체로 반환합니다."""
+        try:
+            if retrieval_mode:
+                self.vector_store.retrieval_mode = retrieval_mode
+          
+            results = self.vector_store.similarity_search_with_score(
+                query=query,
+                k=k,
+                filter=filter
+            )
+            
+            documents = []
+            for doc, score in results:
+                # 기존 metadata에 score 추가
+                enhanced_metadata = doc.metadata.copy()
+                enhanced_metadata["similarity_score"] = score
+                
+                documents.append(Document(
+                    page_content=doc.page_content,
+                    metadata=enhanced_metadata
+                ))
+            
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Document 검색 오류: {e}")
+            return []
