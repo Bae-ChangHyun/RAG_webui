@@ -23,7 +23,6 @@
   "retrieval": {
     "search_limit": 10,
     "score_threshold": 0.4,
-    "use_hybrid": true,
     "default_strategy": "hybrid"
   }
 }

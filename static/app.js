@@ -263,7 +263,6 @@ class SearchManager {
         const defaultOptions = {
             limit: 5,
             threshold: 0.3,
-            use_hybrid: true
         };
 
         const requestData = {
@@ -301,7 +300,6 @@ class SearchManager {
         const defaultOptions = {
             limit: 5,
             threshold: 0.7,
-            use_hybrid: true
         };
 
         const requestData = {

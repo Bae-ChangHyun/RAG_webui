@@ -55,7 +55,6 @@ class EmbeddingSettings(BaseModel):
 class RetrievalSettings(BaseModel):
     search_limit: int = 5
     score_threshold: float = 0.7
-    use_hybrid: bool = False  # 이전 버전과의 호환성을 위해 유지
 
 class SystemSettings(BaseModel):
     chunking: ChunkingSettings = ChunkingSettings()
@@ -106,7 +105,6 @@ class SearchRequest(BaseModel):
     question: Optional[str] = None
     limit: int = 5
     threshold: float = 0.7
-    use_hybrid: Optional[bool] = None
     strategy: Optional[str] = None
     document_id: Optional[str] = None
 
@@ -119,7 +117,6 @@ class QARequest(BaseModel):
     question: str
     limit: int = 5
     threshold: float = 0.7
-    use_hybrid: Optional[bool] = None  # 이전 버전과의 호환성을 위해 유지
     strategy: Optional[str] = "hybrid"  # 'vector', 'bm25', 'hybrid' 중 하나
 
 class QueryAnalysisResult(BaseModel):

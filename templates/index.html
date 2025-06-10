@@ -250,19 +250,19 @@
                         <div class="mt-2 flex items-center">
                             <span class="text-sm text-gray-600 mr-3">검색 전략:</span>
                             <label class="flex items-center text-sm text-gray-600 mr-3">
-                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="vector"
+                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="dense"
                                     class="mr-1">
-                                벡터 검색
+                                Dense 검색
                             </label>
                             <label class="flex items-center text-sm text-gray-600 mr-3">
-                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="bm25"
+                                <input type="radio" name="searchStrategy" x-model="searchStrategy" value="sparse"
                                     class="mr-1">
-                                BM25 검색
+                                Sparse 검색
                             </label>
                             <label class="flex items-center text-sm text-gray-600">
                                 <input type="radio" name="searchStrategy" x-model="searchStrategy" value="hybrid"
                                     class="mr-1">
-                                하이브리드 검색
+                                Hybrid 검색
                             </label>
                         </div>
                     </div>
@@ -598,7 +598,6 @@
                     retrieval: {
                         search_limit: 5,
                         score_threshold: 0.3,
-                        use_hybrid: false
                     }
                 },
 
