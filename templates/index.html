@@ -186,6 +186,18 @@
                                             </div>
                                         </div>
                                         <p x-text="message.content" class="whitespace-pre-wrap"></p>
+
+                                        <!-- 웹 검색 도구 정보 표시 -->
+                                        <div x-show="message.used_tools && message.used_tools.length > 0" class="mt-3">
+                                            <p class="text-xs font-semibold text-gray-600 mb-1">🔧 사용된 도구:</p>
+                                            <div class="flex flex-wrap gap-1">
+                                                <template x-for="tool in message.used_tools" :key="tool">
+                                                    <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs"
+                                                        x-text="tool"></span>
+                                                </template>
+                                            </div>
+                                        </div>
+
                                         <div x-show="message.sources && message.sources.length > 0" class="mt-3">
                                             <p class="text-xs font-semibold text-gray-600 mb-1">📚 참조 문서:</p>
                                             <template x-for="(source, index) in message.sources"
@@ -235,6 +247,28 @@
 
                     <!-- 입력 영역 -->
                     <div class="p-4 border-t border-gray-200">
+                        <!-- 검색 모드 선택 -->
+                        <div class="mb-3">
+                            <div class="flex gap-2">
+                                <button @click="setSearchMode('document')"
+                                    :class="searchMode === 'document' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                                    class="px-4 py-2 rounded-lg text-sm transition duration-200 hover:bg-blue-500 hover:text-white">
+                                    📚 문서 검색
+                                </button>
+                                <button @click="setSearchMode('tool')"
+                                    :class="searchMode === 'tool' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'"
+                                    class="px-4 py-2 rounded-lg text-sm transition duration-200 hover:bg-green-500 hover:text-white">
+                                    🔧 도구 사용
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1" x-show="searchMode === 'document'">
+                                업로드된 문서를 기반으로 답변합니다
+                            </p>
+                            <p class="text-xs text-gray-500 mt-1" x-show="searchMode === 'tool'">
+                                MCP 도구를 사용하여 최신 정보를 제공합니다
+                            </p>
+                        </div>
+
                         <div class="flex gap-2">
                             <input type="text" x-model="currentQuestion" @keyup.enter="askQuestion"
                                 placeholder="문서에 대해 질문해보세요..." :disabled="questioning"
@@ -246,8 +280,8 @@
                             </button>
                         </div>
 
-                        <!-- 검색 전략 옵션 -->
-                        <div class="mt-2">
+                        <!-- 검색 전략 옵션 (문서 검색 모드일 때만 표시) -->
+                        <div x-show="searchMode === 'document'" class="mt-2">
                             <span class="text-sm text-gray-600 mb-2 block">검색 전략:</span>
 
                             <!-- 1단계: 기본 전략 선택 -->
@@ -641,6 +675,7 @@
                 currentQuestion: '',
                 questioning: false,
                 searchStrategy: 'hybrid',
+                searchMode: 'document', // 'document' 또는 'tool'
 
                 // 검색 전략 선택 관련 추가
                 baseStrategy: 'hybrid',
@@ -1021,6 +1056,12 @@
                     }
                 },
 
+                // 검색 모드 설정
+                setSearchMode(mode) {
+                    this.searchMode = mode;
+                    console.log(`검색 모드 변경: ${mode}`);
+                },
+
                 async askQuestion() {
                     if (!this.currentQuestion.trim() || this.questioning) return;
 
@@ -1048,7 +1089,10 @@
                     this.scrollToBottom();
 
                     try {
-                        const response = await fetch('/qa', {
+                        // 검색 모드에 따라 다른 엔드포인트 호출
+                        const endpoint = this.searchMode === 'tool' ? '/use-tool' : '/qa';
+
+                        const response = await fetch(endpoint, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -1072,10 +1116,12 @@
                                 id: Date.now() + 2,
                                 type: 'assistant',
                                 content: result.answer,
-                                sources: result.context_chunks,
+                                sources: result.context_chunks || [],
                                 timestamp: new Date().toLocaleTimeString(),
                                 query_analysis: result.query_analysis,
-                                used_documents: result.used_documents
+                                used_documents: result.used_documents,
+                                search_type: result.search_type || 'document_search',
+                                used_tools: result.used_tools || []
                             };
 
                             this.messages.push(assistantMessage);

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "mcp-server-firecrawl": {
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_URL": "https://czg9rw39-3002.asse.devtunnels.ms"
+      }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
