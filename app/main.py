@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 import logging
+import asyncio
 
 from .models import (
     DocumentCreate, DocumentResponse, SearchRequest, 
@@ -19,6 +20,7 @@ from .database import QdrantDatabase
 from .retriever import DocumentRetriever
 from .llm import LLMService
 from .settings import SettingsManager
+from .mcp_service import MCPService, MCPLLMService
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +44,10 @@ db = QdrantDatabase(embedding_model_name=settings_manager.get_embedding_settings
 llm_service = LLMService(settings_manager.get_llm_settings())
 retriever = DocumentRetriever(db = db,llm_service=llm_service)
 retrieval_settings = settings_manager.get_retrieval_settings()
+
+# MCP 서비스 초기화
+mcp_service = MCPService("mcp.json")
+mcp_llm_service = MCPLLMService(llm_service, mcp_service)
 
 @app.get("/api/status")
 async def api_status():
@@ -481,6 +487,79 @@ async def reinitialize_vectorstore():
     except Exception as e:
         logger.error(f"벡터스토어 재초기화 오류: {e}")
         raise HTTPException(status_code=500, detail=f"벡터스토어 재초기화 실패: {str(e)}")
+
+@app.post("/use-tool")
+async def tool_usage_qa(request: SearchRequest):
+    """MCP 도구를 사용한 질문 답변을 생성합니다."""
+    try:
+        # 질문 필드 확인
+        if not request.question and not request.query:
+            raise HTTPException(status_code=400, detail="질문이 필요합니다.")
+        
+        question = request.question or request.query
+        
+        # MCP 서비스 사용 가능 여부 확인
+        if not mcp_llm_service.is_available():
+            logger.warning("MCP 서비스가 사용 불가능합니다. 일반 LLM 답변으로 대체합니다.")
+            answer = llm_service.generate_general_response(question)
+            return {
+                "success": True,
+                "answer": answer,
+                "search_type": "general",
+                "context_chunks": [],
+                "used_tools": [],
+                "total_count": 0
+            }
+        
+        # MCP 도구를 사용한 답변 생성
+        result = await mcp_llm_service.generate_tool_answer(question)
+        
+        return {
+            "success": True,
+            "answer": result["answer"],
+            "search_type": result.get("search_type", "mcp_tools"),
+            "context_chunks": [],
+            "used_tools": result.get("used_tools", []),
+            "total_count": 0
+        }
+        
+    except Exception as e:
+        logger.error(f"MCP 도구 사용 질문 처리 중 오류 발생: {e}")
+        # 오류 발생 시 일반 LLM 답변으로 fallback
+        try:
+            answer = llm_service.generate_general_response(question)
+            return {
+                "success": True,
+                "answer": f"도구 사용 중 오류가 발생했습니다. 일반 답변: {answer}",
+                "search_type": "fallback",
+                "context_chunks": [],
+                "used_tools": [],
+                "total_count": 0,
+                "error": str(e)
+            }
+        except Exception as fallback_error:
+            logger.error(f"Fallback 답변 생성도 실패: {fallback_error}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/mcp/status")
+async def get_mcp_status():
+    """MCP 서비스 상태를 조회합니다."""
+    try:
+        return {
+            "available": mcp_service.is_available(),
+            "server_names": mcp_service.get_server_names(),
+            "llm_available": llm_service.is_available(),
+            "mcp_llm_available": mcp_llm_service.is_available()
+        }
+    except Exception as e:
+        logger.error(f"MCP 상태 조회 오류: {e}")
+        return {
+            "available": False,
+            "server_names": [],
+            "llm_available": False,
+            "mcp_llm_available": False,
+            "error": str(e)
+        }
 
 @app.get("/", response_class=HTMLResponse)
 async def main_page(request: Request):
